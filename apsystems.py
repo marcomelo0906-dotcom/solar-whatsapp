@@ -123,7 +123,7 @@ def requisicao(method, path, params=None, json_body=None):
         "timeout": 30
     }
 
-    # Só adicionamos parâmetros se realmente existirem.
+    # Só adicionamos parâmetros se realmente existirem.export APSYSTEMS_APP_ID="2c9f934aa09e5d8201a0a09fab9809c9"
     if params is not None:
         kwargs["params"] = params
 
@@ -285,7 +285,8 @@ def consultar_energia_mes(sid, ano, mes):
 
 def consultar_ontem(sid):
 
-    ontem = datetime.now().date() - timedelta(days=1)
+    hoje = datetime.now().date()
+    ontem = hoje - timedelta(days=1)
 
     print("\n=======================================================")
     print("⚡ CONSULTANDO GERAÇÃO")
@@ -293,22 +294,43 @@ def consultar_ontem(sid):
 
     print(f"\nData desejada: {ontem:%d/%m/%Y}")
 
-    valores = consultar_energia_mes(
+    valores_mes_atual = consultar_energia_mes(
         sid,
-        ontem.year,
-        ontem.month
+        hoje.year,
+        hoje.month
     )
+
+    try:
+        acumulado_mes = sum(
+            float(valor)
+            for valor in valores_mes_atual
+        )
+    except (TypeError, ValueError) as erro:
+        raise RuntimeError(
+            "A API retornou um valor inválido no acumulado mensal."
+        ) from erro
+
+    # Normalmente ontem pertence ao mês atual e reutilizamos a mesma
+    # resposta. No primeiro dia do mês, consultamos também o mês anterior.
+    if (ontem.year, ontem.month) == (hoje.year, hoje.month):
+        valores_ontem = valores_mes_atual
+    else:
+        valores_ontem = consultar_energia_mes(
+            sid,
+            ontem.year,
+            ontem.month
+        )
 
     indice = ontem.day - 1
 
-    if indice >= len(valores):
+    if indice >= len(valores_ontem):
 
         raise RuntimeError(
             "A API não retornou dados suficientes para "
             f"{ontem:%d/%m/%Y}."
         )
 
-    valor = valores[indice]
+    valor = valores_ontem[indice]
 
     try:
 
@@ -320,7 +342,7 @@ def consultar_ontem(sid):
             f"Valor de energia inválido: {valor}"
         )
 
-    return ontem, energia
+    return ontem, energia, acumulado_mes
 
 
 # ============================================================
@@ -562,7 +584,7 @@ def main():
     # CONSULTAR ONTEM
     # --------------------------------------------------------
 
-    data, energia = consultar_ontem(sid)
+    data, energia, acumulado_mes = consultar_ontem(sid)
 
     # --------------------------------------------------------
     # RESULTADO
@@ -574,11 +596,13 @@ def main():
 
     print(f"\n📅 Data:    {data:%d/%m/%Y}")
     print(f"⚡ Geração: {energia:.2f} kWh")
+    print(f"📈 Acumulado no mês: {acumulado_mes:.2f} kWh")
 
     mensagem = (
         "☀️ *RELATÓRIO SOLAR*\n\n"
         f"📅 Data: {data:%d/%m/%Y}\n"
         f"⚡ Geração: {energia:.2f} kWh\n"
+        f"📈 Acumulado no mês: {acumulado_mes:.2f} kWh\n"
         f"🏭 Capacidade instalada: {sistema.get('capacity', 'N/D')} kW\n"
         f"📊 Status: {status_sistema(sistema.get('light'))}\n"
         f"🔌 ECU: {', '.join(sistema.get('ecu', [])) or 'N/D'}"
